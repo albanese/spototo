@@ -1,0 +1,6 @@
+requests>=2.31
+python-dotenv>=1.0
+watchdog>=4.0
+mutagen>=1.47
+replicate>=0.30
+Pillow>=10.0

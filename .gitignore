@@ -1,0 +1,22 @@
+# --- Secrets: never commit these ---
+.env
+.cache
+data/state.json
+data/spotify_token.json
+data/spotify_state.json
+
+# --- Runtime data (downloaded audio, per-playlist manifests, temp staging) ---
+data/watch/*
+data/processed/*
+data/.staging/
+!data/watch/.gitkeep
+!data/processed/.gitkeep
+
+# --- Personal deployment notes (not general docs) ---
+BEELINK_AGENT_PLAN.md
+
+# --- Python / venvs ---
+spotify_sync/.venv/
+.venv/
+__pycache__/
+*.pyc
