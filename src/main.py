@@ -27,6 +27,7 @@ from watchdog.observers import Observer
 
 from art_generator import extract_subject, generate_pixel_art
 from config import Config
+from icon_library import find_library_icon
 from state import State
 from yoto_client import YotoClient
 
@@ -129,6 +130,41 @@ def next_chapter_num(existing_chapters) -> int:
     return max(used, default=0) + 1
 
 
+def resolve_icon(client: YotoClient, title: str, icon_filename_stem: str):
+    """Returns an icon mediaId per Config.ICON_SOURCE, or None for no icon.
+
+    - "generate" (default): LLM subject extraction + AI pixel art, best-of-N
+      candidates judged by a vision model (see art_generator.py).
+    - "yoto-library": deterministic keyword match against Yoto's own official
+      icon library, no AI involved at all (see icon_library.py). No match ->
+      None, never silently falls back to generation.
+    - "none": skip the icon step entirely.
+    """
+    source = Config.ICON_SOURCE
+    if source == "none":
+        return None
+
+    if source == "yoto-library":
+        media_id = find_library_icon(client, title)
+        if media_id:
+            log.info(f"Icon (library match) for {title!r}: mediaId={media_id}")
+        else:
+            log.info(f"Icon (library): no match for {title!r}; leaving without a custom icon")
+        return media_id
+
+    # Distill the title to a single concrete subject, then ask for a clean
+    # centered icon of just that — this matches Yoto's own icon aesthetic.
+    # Feeding the raw title or "album" pulls the model toward busy full-scene
+    # album-cover compositions that read as mush at 16x16.
+    subject = extract_subject(title, Config.REPLICATE_API_TOKEN)
+    prompt = f"{subject}, cute simple flat pixel art icon, single centered subject, bold outline"
+    log.info(f"Icon subject: {title!r} -> {subject!r}")
+    icon_bytes = generate_pixel_art(prompt, Config.REPLICATE_API_TOKEN, subject=subject)
+    media_id = client.upload_icon(icon_bytes, filename=f"{icon_filename_stem}.png")
+    log.info(f"Uploaded icon, mediaId={media_id}")
+    return media_id
+
+
 def process_file(path: Path, client: YotoClient, state: State):
     card_name = target_card_name(path)
     track_id, original_name = parse_track_id(path.name)
@@ -138,17 +174,7 @@ def process_file(path: Path, client: YotoClient, state: State):
     title, artist = read_tags(path)
     log.info(f"Tags -> title={title} artist={artist}")
 
-    # Distill the title to a single concrete subject (an LLM step), then ask
-    # for a clean centered icon of just that — this matches Yoto's own icon
-    # aesthetic. Feeding the raw title or "album" pulls the model toward busy
-    # full-scene album-cover compositions that read as mush at 16x16.
-    subject = extract_subject(title, Config.REPLICATE_API_TOKEN)
-    prompt = f"{subject}, cute simple flat pixel art icon, single centered subject, bold outline"
-    log.info(f"Icon subject: {title!r} -> {subject!r}")
-    icon_bytes = generate_pixel_art(prompt, Config.REPLICATE_API_TOKEN, subject=subject)
-
-    media_id = client.upload_icon(icon_bytes, filename=f"{Path(original_name).stem}.png")
-    log.info(f"Uploaded icon, mediaId={media_id}")
+    media_id = resolve_icon(client, title, Path(original_name).stem)
 
     audio_info = client.upload_audio(str(path))
     log.info(f"Audio transcoded, sha256={audio_info['sha256']}")

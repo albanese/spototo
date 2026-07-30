@@ -35,6 +35,9 @@ Yoto API  →  MYO card chapter
 
 ### Icon generation, the part that took the most tuning
 
+This is the default (`ICON_SOURCE=generate`); if you'd rather have no AI
+involved at all, skip to [the non-AI option](#dont-want-ai-involved-at-all-icon_sourcenone-or-yoto-library) below.
+
 Feeding a raw song title straight to an image model produces mush — the two
 things that actually work:
 
@@ -68,6 +71,19 @@ free by comparison. So cost per song ≈ `ICON_CANDIDATES × $0.015`:
 | 1 | ~$0.015 | single-shot, no best-of |
 
 Set it in `.env` — no rebuild needed, just a container restart.
+
+### Don't want AI involved at all? `ICON_SOURCE=none` or `yoto-library`
+
+The generative pipeline above is the default, but it's a config choice, not
+a requirement:
+
+- **`ICON_SOURCE=yoto-library`** — matches the song title against Yoto's own
+  official icon library by keyword/tag, entirely deterministically. No LLM,
+  no image generation, zero AI calls. If nothing matches well, the chapter
+  just has no custom icon — it never silently falls back to generating one.
+- **`ICON_SOURCE=none`** — skip the icon step completely.
+
+With either of these set, `REPLICATE_API_TOKEN` isn't even needed.
 
 ### Deletion is safety-scoped
 

@@ -200,7 +200,7 @@ class YotoClient:
             "format": info.get("format", "mp3"),
         }
 
-    # ---- icon upload ------------------------------------------------
+    # ---- icon upload / library ------------------------------------------
 
     def upload_icon(self, png_bytes, filename="icon.png"):
         resp = self._post_binary(
@@ -217,11 +217,25 @@ class YotoClient:
                 "the raw JSON and fix upload_icon() in src/yoto_client.py."
             ) from exc
 
+    def list_library_icons(self):
+        """Yoto's official icon library (title + tags per icon) -- used by
+        icon_library.py for non-AI keyword matching."""
+        resp = self._get("/media/displayIcons/user/yoto")
+        try:
+            return resp["displayIcons"]
+        except (KeyError, TypeError) as exc:
+            raise ValueError(
+                "Couldn't parse displayIcons from GET /media/displayIcons/user/yoto"
+            ) from exc
+
     # ---- chapter building --------------------------------------------
 
     @staticmethod
-    def build_chapter(chapter_num, title, artist, audio_info, icon_media_id):
-        icon_ref = f"yoto:#{icon_media_id}"
+    def build_chapter(chapter_num, title, artist, audio_info, icon_media_id=None):
+        """icon_media_id may be None (Config.ICON_SOURCE = "none", or no
+        library match found) -- the chapter is then built without a custom
+        icon, and Yoto shows its own default instead."""
+        display = {"display": {"icon16x16": f"yoto:#{icon_media_id}"}} if icon_media_id else {}
         chapter_title = f"{title} — {artist}" if artist else title
         track = {
             "key": "01",
@@ -232,11 +246,11 @@ class YotoClient:
             "duration": audio_info.get("duration"),
             "fileSize": audio_info.get("fileSize"),
             "channels": audio_info.get("channels", "stereo"),
-            "display": {"icon16x16": icon_ref},
+            **display,
         }
         return {
             "key": f"{chapter_num:02d}",
             "title": chapter_title,
             "tracks": [track],
-            "display": {"icon16x16": icon_ref},
+            **display,
         }

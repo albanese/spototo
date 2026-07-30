@@ -22,6 +22,13 @@ class Config:
 
     REPLICATE_API_TOKEN = os.environ.get("REPLICATE_API_TOKEN", "")
 
+    # generate: LLM subject + AI-generated pixel art (default).
+    # yoto-library: deterministic keyword match against Yoto's own official
+    #   icon library -- no AI involved at all. Falls back to no icon if no
+    #   good match, never silently falls back to generation.
+    # none: no icon step at all.
+    ICON_SOURCE = os.environ.get("ICON_SOURCE", "generate")
+
     WATCH_DIR = _path("WATCH_DIR", "data/watch")
     PROCESSED_DIR = _path("PROCESSED_DIR", "data/processed")
     STATE_FILE = _path("STATE_FILE", "data/state.json")
@@ -38,11 +45,10 @@ class Config:
 
     @classmethod
     def validate(cls):
-        missing = [
-            name
-            for name in ("YOTO_CLIENT_ID", "REPLICATE_API_TOKEN")
-            if not getattr(cls, name)
-        ]
+        required = ["YOTO_CLIENT_ID"]
+        if cls.ICON_SOURCE == "generate":
+            required.append("REPLICATE_API_TOKEN")
+        missing = [name for name in required if not getattr(cls, name)]
         if missing:
             raise RuntimeError(
                 f"Missing required environment variables: {', '.join(missing)}"
