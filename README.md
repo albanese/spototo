@@ -1,6 +1,6 @@
 # 🎵 Spototo
 
-Turn Spotify playlists into self-updating [Yoto](https://yoto.io) Make-Your-Own
+Turn Spotify playlists into self-updating [Yoto](https://yotoplay.com) Make-Your-Own
 cards — complete with custom AI-generated pixel art icons for every song.
 
 Name a playlist `Yoto-Bedtime`, add songs to it, and Spototo automatically:
@@ -23,11 +23,11 @@ No per-playlist configuration — just the naming convention.
 Spotify (Yoto-* playlists)
         │  poll every few min, user OAuth
         ▼
-spotify_sync/   (host, systemd timer)
+spotify_sync/   (Docker, or a host systemd timer)
         │  yt-dlp download → data/watch/<card name>/
         ▼
 src/            (Docker container)
-        │  title → LLM subject → 8 candidate icons → vision judge picks best
+        │  title → LLM subject → N candidate icons → vision judge picks best
         │  audio upload + transcode
         ▼
 Yoto API  →  MYO card chapter
@@ -96,26 +96,38 @@ on Windows/macOS, an issue report either way (works / doesn't) is welcome.
 ```bash
 cp .env.example .env
 nano .env   # YOTO_CLIENT_ID, REPLICATE_API_TOKEN, SPOTIPY_CLIENT_ID/SECRET
+```
 
-# 1. Yoto login (run on a machine with a browser — the server itself can be headless)
+Two one-time logins need an actual browser, so run them wherever you have
+one — your laptop, not necessarily the server. Clone or copy the repo there,
+then:
+
+```bash
+pip install -r requirements.txt -r spotify_sync/requirements.txt
+
+# 1. Yoto login -> writes data/state.json
 python auth_setup.py --client-id YOUR_YOTO_CLIENT_ID
-scp data/state.json you@server:/path/to/spototo/data/
 
-# 2. Spotify login (needs playlist-read-private to list your playlists)
+# 2. Spotify login (needs playlist-read-private to list your playlists) -> writes data/spotify_token.json
 python spotify_sync/spotify_auth_setup.py
-scp data/spotify_token.json you@server:/path/to/spototo/data/
+```
 
-# 3. bring up both services
+Copy both resulting files to the machine that will actually run the
+containers (which can be completely headless):
+
+```bash
+scp data/state.json data/spotify_token.json you@server:/path/to/spototo/data/
+```
+
+Then, on that server:
+
+```bash
 docker compose up --build -d
 docker compose logs -f
 ```
 
-Then rename or create a Spotify playlist as `Yoto-<name>` and wait for the
-next sync (every 5 min by default — see `SPOTIFY_POLL_SECONDS` in `.env.example`).
-
-Steps 1 and 2 need a one-time browser login, so run them on your laptop, then
-copy the two resulting files over — the server running the containers can be
-completely headless.
+Rename or create a Spotify playlist as `Yoto-<name>` and wait for the next
+sync (every 5 min by default — see `SPOTIFY_POLL_SECONDS` in `.env.example`).
 
 <details>
 <summary>Prefer a host-level systemd timer instead of the spototo-sync container? (Linux only)</summary>
@@ -133,6 +145,9 @@ python3 -m venv spotify_sync/.venv
 source spotify_sync/.venv/bin/activate
 pip install -r spotify_sync/requirements.txt
 
+# Edit systemd/spotify-sync.service first: it has placeholder paths/user
+# (User=, WorkingDirectory=, EnvironmentFile=, ExecStart=) that need to match
+# your actual username and where you cloned this repo.
 sudo cp systemd/spotify-sync.* /etc/systemd/system/
 sudo systemctl daemon-reload && sudo systemctl enable --now spotify-sync.timer
 ```

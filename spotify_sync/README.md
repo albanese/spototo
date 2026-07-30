@@ -26,6 +26,10 @@ Requires `ffmpeg` and Node.js on the host (`yt-dlp` needs a JS runtime to
 solve YouTube's extraction challenge — without it, downloads silently fail
 with "This video is not available").
 
+Edit `../systemd/spotify-sync.service` first — it has placeholder paths/user
+(`User=`, `WorkingDirectory=`, `EnvironmentFile=`, `ExecStart=`) that need to
+match your actual username and where you cloned this repo.
+
 ```bash
 sudo cp ../systemd/spotify-sync.* /etc/systemd/system/
 sudo systemctl daemon-reload && sudo systemctl enable --now spotify-sync.timer

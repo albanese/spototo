@@ -5,10 +5,11 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
-User=yo
-WorkingDirectory=/opt/stack/yoto-automation
-EnvironmentFile=/opt/stack/yoto-automation/.env
-ExecStart=/opt/stack/yoto-automation/spotify_sync/.venv/bin/python \
-          /opt/stack/yoto-automation/spotify_sync/sync.py
+# Edit these three paths/user to match your own setup before installing.
+User=youruser
+WorkingDirectory=/path/to/spototo
+EnvironmentFile=/path/to/spototo/.env
+ExecStart=/path/to/spototo/spotify_sync/.venv/bin/python \
+          /path/to/spototo/spotify_sync/sync.py
 StandardOutput=journal
 StandardError=journal
