@@ -1,0 +1,23 @@
+services:
+  spototo:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: spototo
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - ./data:/app/data
+    # Uncomment on Linux if you want files owned by your user instead of root:
+    # user: "1000:1000"
+
+  spototo-sync:
+    build:
+      context: .
+      dockerfile: spotify_sync/Dockerfile
+    container_name: spototo-sync
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - ./data:/app/data
+    # user: "1000:1000"

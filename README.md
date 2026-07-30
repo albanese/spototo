@@ -80,10 +80,16 @@ also edit by hand.
 
 | Path | What it does | Runs as |
 |---|---|---|
-| `spotify_sync/` | Discovers `Yoto-*` playlists, downloads new tracks, tracks deletions | host systemd timer |
-| `src/` | Watches the download folder, generates icons, talks to the Yoto API | Docker (`yoto-pixel-pipeline`) |
+| `spotify_sync/` | Discovers `Yoto-*` playlists, downloads new tracks, tracks deletions | Docker (`spototo-sync`) or host systemd timer |
+| `src/` | Watches the download folder, generates icons, talks to the Yoto API | Docker (`spototo`) |
 | `spotify_sync/spotify_auth_setup.py` | One-time Spotify OAuth login (needs a browser) | run manually, once |
 | `auth_setup.py` | One-time Yoto OAuth login (needs a browser) | run manually, once |
+
+Everything runs in Docker — no systemd, no Python venvs, no `apt install`.
+It's been developed and run in production on Linux; it *should* work the
+same via Docker Desktop on Windows and macOS since nothing in the containers
+is Linux-specific, but that hasn't been verified firsthand yet. If you try it
+on Windows/macOS, an issue report either way (works / doesn't) is welcome.
 
 ## Setup
 
@@ -91,7 +97,7 @@ also edit by hand.
 cp .env.example .env
 nano .env   # YOTO_CLIENT_ID, REPLICATE_API_TOKEN, SPOTIPY_CLIENT_ID/SECRET
 
-# 1. Yoto login (run on a machine with a browser — this box can be headless)
+# 1. Yoto login (run on a machine with a browser — the server itself can be headless)
 python auth_setup.py --client-id YOUR_YOTO_CLIENT_ID
 scp data/state.json you@server:/path/to/spototo/data/
 
@@ -99,23 +105,47 @@ scp data/state.json you@server:/path/to/spototo/data/
 python spotify_sync/spotify_auth_setup.py
 scp data/spotify_token.json you@server:/path/to/spototo/data/
 
-# 3. bring up the pipeline
-docker compose up --build -d yoto-pixel-pipeline
+# 3. bring up both services
+docker compose up --build -d
+docker compose logs -f
+```
 
-# 4. install the Spotify sync timer
+Then rename or create a Spotify playlist as `Yoto-<name>` and wait for the
+next sync (every 5 min by default — see `SPOTIFY_POLL_SECONDS` in `.env.example`).
+
+Steps 1 and 2 need a one-time browser login, so run them on your laptop, then
+copy the two resulting files over — the server running the containers can be
+completely headless.
+
+<details>
+<summary>Prefer a host-level systemd timer instead of the spototo-sync container? (Linux only)</summary>
+
+⚠️ Pick **one** — the Docker `spototo-sync` service and this systemd timer both
+poll and download independently. Running both against the same `data/`
+directory means duplicate, racing downloads. If you use this path, don't
+also start the `spototo-sync` container (`docker compose up` without listing
+it by name brings up every service, so start `spototo` explicitly instead).
+
+```bash
+docker compose up --build -d spototo   # just this one service
+
+python3 -m venv spotify_sync/.venv
+source spotify_sync/.venv/bin/activate
+pip install -r spotify_sync/requirements.txt
+
 sudo cp systemd/spotify-sync.* /etc/systemd/system/
 sudo systemctl daemon-reload && sudo systemctl enable --now spotify-sync.timer
 ```
 
-Then rename or create a Spotify playlist as `Yoto-<name>` and wait for the
-next sync (or trigger one: `sudo systemctl start spotify-sync.service`).
+Requires `ffmpeg` and Node.js on the host (used by `yt-dlp`). See `spotify_sync/README.md`.
+</details>
 
 ## Requirements
 
 - A [Yoto](https://yoto.dev) developer account (public client)
 - A [Replicate](https://replicate.com) API token (LLM + image generation + vision judge)
 - A Spotify Developer app (`playlist-read-private` scope)
-- Docker + a Linux host for the systemd timer (tested on Ubuntu)
+- Docker (Docker Desktop on Windows/Mac, Docker Engine on Linux)
 
 ## Legal / scope
 
