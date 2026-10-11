@@ -1,12 +1,12 @@
 # 🎵 Spototo
 
 Turn Spotify playlists into self-updating [Yoto](https://yotoplay.com) Make-Your-Own
-cards — complete with custom AI-generated pixel art icons for every song.
+cards — with library icons by default and optional AI-generated pixel art.
 
 Name a playlist `Yoto-Bedtime`, add songs to it, and Spototo automatically:
 
 - downloads new tracks as they're added
-- generates a 16×16 pixel-art icon for each one (with a little AI help — see below)
+- matches a 16×16 icon from Yoto's official library (optional AI — see below)
 - appends it as a chapter on a Yoto card called **"Bedtime"** (created for you on the first track)
 - removes the chapter again if you delete the song from the playlist
 
@@ -16,6 +16,35 @@ No per-playlist configuration — just the naming convention.
 > ⚠️ **Audio comes from YouTube search results via `yt-dlp`**, not licensed
 > Spotify streams — there's no way around this without label deals. It's a
 > personal/family tool, not a distribution service. See [Legal](#legal--scope) below.
+
+## Maintained fork
+
+This fork is maintained at https://github.com/albanese/spototo, with
+https://github.com/baty0man/spototo as upstream. It combines the library-first
+icon/backfill feature (`f99acfcb8603834f7d9286793ab6054d6e753c28`, based on
+`5bf9524cb861a91ff08cd50e89d04d9e12d0d7ec`) with maintained Spotify item parsing,
+direct source-validated downloads, persistent blocks and uploader duration
+guards/in-place replacement. The uploader retains the shared icon resolver
+and pipeline/maintenance lock.
+
+Defaults are `ICON_SOURCE=yoto-library` and `ICON_AI_MAX_GENERATIONS=0`:
+missing icons never authorize AI spending. Existing explicit environment
+settings override defaults; legacy `generate` remains uncapped and must not
+be selected for a no-spending deployment.
+
+Run `bash scripts/test-offline.sh` using the existing `spototo-spototo-sync`
+and `spototo-spototo` images. Tests use network-disabled containers, read-only
+source/test mounts and private tmpfs, never `.env` or runtime data. They cover
+both API item shapes, audio guards, real media-tool compatibility, library
+matching, guarded cache/backfill, and shared locks; provider calls are mocked.
+
+Deploy only a reviewed source revision: preserve the existing private `.env`,
+`data/`, source evidence and recovery originals, then rebuild/recreate **both**
+services during an approved pause (a restart does not update embedded source).
+Keep library mode and zero allowance; deployment does not authorize backfill
+or spending. Known pre-existing state replacement permissions and chapter
+mapping drift require separate repairs; offline tests do not certify live
+recording availability or remote editing races.
 
 ## How it works
 
@@ -27,7 +56,7 @@ spotify_sync/   (Docker, or a host systemd timer)
         │  yt-dlp download → data/watch/<card name>/
         ▼
 src/            (Docker container)
-        │  title → LLM subject → N candidate icons → vision judge picks best
+        │  title → official library icon (optional guarded AI fallback)
         │  audio upload + transcode
         ▼
 Yoto API  →  MYO card chapter
@@ -35,8 +64,8 @@ Yoto API  →  MYO card chapter
 
 ### Icon generation, the part that took the most tuning
 
-This is the default (`ICON_SOURCE=generate`); if you'd rather have no AI
-involved at all, skip to [the non-AI option](#dont-want-ai-involved-at-all-icon_sourcenone-or-yoto-library) below.
+This is an explicit paid opt-in (`ICON_SOURCE=generate`), not the maintained
+fork's default. The default is [the non-AI option](#dont-want-ai-involved-at-all-icon_sourcenone-or-yoto-library) below.
 
 Feeding a raw song title straight to an image model produces mush — the two
 things that actually work:
@@ -74,8 +103,7 @@ Set it in `.env` — no rebuild needed, just a container restart.
 
 ### Don't want AI involved at all? `ICON_SOURCE=none` or `yoto-library`
 
-The generative pipeline above is the default, but it's a config choice, not
-a requirement:
+The maintained fork defaults to `yoto-library`; AI is not a requirement:
 
 - **`ICON_SOURCE=yoto-library`** — matches the song title against Yoto's own
   official icon library by keyword/tag, entirely deterministically. No LLM,
@@ -170,7 +198,7 @@ on Windows/macOS, an issue report either way (works / doesn't) is welcome.
 
 ```bash
 cp .env.example .env
-nano .env   # YOTO_CLIENT_ID, REPLICATE_API_TOKEN, SPOTIPY_CLIENT_ID/SECRET
+nano .env   # YOTO_CLIENT_ID, SPOTIPY_CLIENT_ID/SECRET; keep library mode for no AI
 ```
 
 Two one-time logins need an actual browser, so run them wherever you have
@@ -233,7 +261,7 @@ Requires `ffmpeg` and Node.js on the host (used by `yt-dlp`). See `spotify_sync/
 ## Requirements
 
 - A [Yoto](https://yoto.dev) developer account (public client)
-- A [Replicate](https://replicate.com) API token (LLM + image generation + vision judge)
+- Optional [Replicate](https://replicate.com) token only for explicitly enabled AI
 - A Spotify Developer app (`playlist-read-private` scope)
 - Docker (Docker Desktop on Windows/Mac, Docker Engine on Linux)
 
@@ -255,7 +283,7 @@ instance under your own accounts.
 
 - Single Spotify account, single Yoto account — see Legal above.
 - Audio quality is bounded by whatever YouTube has for a given track.
-- Offline resolver/backfill tests use `PYTHONPATH=src python -m unittest discover -s tests -v`.
+- Offline combined tests use `bash scripts/test-offline.sh` (split images: main lacks Spotipy).
 
 ## License
 

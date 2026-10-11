@@ -4,6 +4,8 @@
 data/state.json
 data/spotify_token.json
 data/spotify_state.json
+# Recovery snapshots include token-bearing state and private audio.
+data/recovery/
 
 # --- Runtime data (downloaded audio, per-playlist manifests, temp staging) ---
 data/watch/*

@@ -16,6 +16,7 @@ data/spotify_token.json here.
 """
 import json
 import logging
+import math
 import os
 import shutil
 import subprocess
@@ -99,56 +100,93 @@ def fetch_playlist_tracks(sp: spotipy.Spotify, playlist_id: str):
     results = sp.playlist_items(playlist_id, additional_types=("track",))
     while results:
         for item in results.get("items", []):
-            track = item.get("track")
+            # Spotify's current API uses "item"; older responses use "track".
+            track = item.get("item") or item.get("track")
             if not track or not track.get("id"):
                 continue  # local files / unavailable tracks have no id
+            if track.get("type", "track") != "track":
+                continue  # the current endpoint may also return episodes
             tracks.append(
                 {
                     "id": track["id"],
                     "title": track["name"],
                     "artist": ", ".join(a["name"] for a in track.get("artists", [])),
+                    "duration_ms": track.get("duration_ms"),
                 }
             )
         results = sp.next(results) if results.get("next") else None
     return tracks
 
 
-def download_track(track: dict, card_name: str) -> str:
-    """Download one track via spotify_dl into a staging dir, then move the
-    finished MP3 into WATCH_DIR/<card_name>/. Returns the final filename.
+def audio_duration_seconds(path: Path) -> float:
+    result = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "json", str(path)],
+        capture_output=True, text=True, timeout=30, check=True,
+    )
+    return float(json.loads(result.stdout)["format"]["duration"])
 
-    The filename is prefixed with the Spotify track ID (`<id>--<name>.mp3`)
-    so the Yoto pipeline can record which chapter came from which track, and
-    later remove it if the track disappears from the playlist. Spotify IDs
-    are a fixed 22-char base62 string, so this is safe to parse back out."""
-    staging = STAGING_DIR / card_name
+
+def download_track(track: dict, card_name: str) -> str:
+    """Download one duration-matched song, validate it, then atomically publish.
+
+    Never trim a compilation or publish an arbitrary search result. The ID
+    prefix associates the validated file with its Spotify metadata/card.
+    """
+    duration_ms = track.get("duration_ms")
+    if isinstance(duration_ms, bool) or not isinstance(duration_ms, (int, float)) or not math.isfinite(duration_ms) or duration_ms <= 0:
+        raise ValueError("A positive finite Spotify duration is required before downloading")
+    staging = (STAGING_DIR / card_name).resolve()
     if staging.exists():
         shutil.rmtree(staging, ignore_errors=True)
     staging.mkdir(parents=True, exist_ok=True)
 
-    track_url = f"https://open.spotify.com/track/{track['id']}"
     wrapper = Path(__file__).resolve().parent / "run_spotify_dl.py"
     result = subprocess.run(
-        [sys.executable, str(wrapper), "-l", track_url, "-o", str(staging)],
+        [sys.executable, str(wrapper), "--track-json", json.dumps(track), "--output", str(staging)],
         capture_output=True,
         text=True,
         timeout=180,
+        # spotify_dl renames its cwd log into staging; both paths must be on
+        # the bind-mounted filesystem, not /app's container overlay.
+        cwd=str(staging),
     )
     if result.returncode != 0:
-        raise RuntimeError(f"spotify_dl exited {result.returncode}: {result.stderr.strip()}")
+        raise RuntimeError(f"Song downloader exited {result.returncode}; no audio published")
 
     mp3s = list(staging.rglob("*.mp3"))
-    if not mp3s:
-        raise RuntimeError("spotify_dl reported success but produced no .mp3")
+    if len(mp3s) != 1:
+        raise ValueError("Song downloader must produce exactly one MP3")
+    try:
+        from .source_matching import duration_matches
+    except ImportError:
+        from source_matching import duration_matches
+    actual = audio_duration_seconds(mp3s[0])
+    if not duration_matches(actual, duration_ms / 1000):
+        raise ValueError(f"Downloaded audio duration {actual:.1f}s does not match Spotify {duration_ms / 1000:.1f}s")
+    log.info("  Validated duration: %.1fs (Spotify %.1fs)", actual, duration_ms / 1000)
 
     dest_dir = WATCH_DIR / card_name
     dest_dir.mkdir(parents=True, exist_ok=True)
     dest = dest_dir / f"{track['id']}--{mp3s[0].name}"
     # Move into the (unwatched-until-complete) staging -> watch. Same filesystem
     # (both under data/), so rename is atomic; the pipeline sees a whole file.
+    # Preserve the chosen source evidence outside staging for later auditing.
+    evidence = staging / "source.json"
+    if evidence.exists():
+        evidence.replace(dest_dir / f".{track['id']}.source.json")
     mp3s[0].replace(dest)
     shutil.rmtree(staging, ignore_errors=True)
     return dest.name
+
+
+def write_track_metadata(card_name: str, tracks) -> None:
+    """Expected durations for a second fail-closed check at the upload boundary."""
+    path = WATCH_DIR / card_name / ".spotify_tracks.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    with open(tmp, "w") as f:
+        json.dump({t["id"]: t for t in tracks}, f)
+    tmp.replace(path)
 
 
 def write_manifest(card_name: str, live_track_ids) -> None:
@@ -220,6 +258,7 @@ def main() -> int:
             continue
 
         live_ids = {t["id"] for t in tracks}
+        write_track_metadata(card_name, tracks)
         write_manifest(card_name, live_ids)
 
         # Forget any track we'd previously downloaded that's no longer in the
@@ -233,10 +272,12 @@ def main() -> int:
         if removed_ids:
             save_state(state)
 
-        new_tracks = [t for t in tracks if t["id"] not in pstate["downloaded"]]
+        blocked = pstate.get("blocked", {})
+        new_tracks = [t for t in tracks if t["id"] not in pstate["downloaded"] and t["id"] not in blocked]
+        blocked_count = sum(t["id"] in blocked for t in tracks)
         log.info(
             f"[{pl['name']}] -> card {card_name!r}: "
-            f"{len(tracks)} tracks, {len(new_tracks)} new, {len(removed_ids)} removed"
+            f"{len(tracks)} tracks, {len(new_tracks)} new, {len(removed_ids)} removed, {blocked_count} blocked"
         )
 
         for track in new_tracks:

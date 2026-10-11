@@ -138,11 +138,32 @@ def resolve_icon(client: YotoClient, title: str, icon_filename_stem: str):
         client._spototo_icon_resolver = resolver
     return resolver.resolve(title, icon_filename_stem)
 
+
+def validate_spotify_audio(path: Path, track_id: str) -> None:
+    """Reject stale/incorrect Spotify downloads before any remote mutation."""
+    from source_matching import duration_matches
+    try:
+        metadata = json.loads((path.parent / ".spotify_tracks.json").read_text())
+        duration_ms = metadata[track_id]["duration_ms"]
+        if isinstance(duration_ms, bool) or not isinstance(duration_ms, (int, float)):
+            raise ValueError("Invalid expected duration")
+        audio = MutagenFile(path)
+        actual = audio.info.length if audio is not None else None
+        expected = duration_ms / 1000
+    except (OSError, KeyError, TypeError, AttributeError, ValueError) as exc:
+        raise ValueError("Cannot validate Spotify audio duration; refusing upload") from exc
+    if not duration_matches(actual, expected):
+        raise ValueError(f"Spotify audio duration mismatch: {actual!r}s vs {expected:.1f}s; refusing upload")
+    log.info("Validated upload duration: %.1fs (Spotify %.1fs)", actual, expected)
+
+
 def process_file(path: Path, client: YotoClient, state: State):
     card_name = target_card_name(path)
     track_id, original_name = parse_track_id(path.name)
     log.info(f"New file: {path.name} (card {card_name!r})")
     wait_for_stable_file(path, Config.STABLE_WAIT_SECONDS)
+    if track_id:
+        validate_spotify_audio(path, track_id)
 
     title, artist = read_tags(path)
     log.info(f"Tags -> title={title} artist={artist}")
@@ -154,10 +175,15 @@ def process_file(path: Path, client: YotoClient, state: State):
 
     card_id = resolve_card_id(state, card_name)
     card_id, existing_chapters = client.get_card_and_chapters(card_id)
-    chapter_num = next_chapter_num(existing_chapters)
+    known_key = ((state.get("chapters", {}) or {}).get(card_name, {}) or {}).get(track_id) if track_id else None
+    matches = [ch for ch in existing_chapters if known_key and ch.get("key") == known_key]
+    if len(matches) > 1:
+        raise ValueError("Ambiguous existing chapter mapping; refusing replacement")
+    chapter_num = int(known_key) if matches and known_key is not None else next_chapter_num(existing_chapters)
     chapter = client.build_chapter(chapter_num, title, artist, audio_info, media_id)
+    updated_chapters = [chapter if ch is matches[0] else ch for ch in existing_chapters] if matches else existing_chapters + [chapter]
     new_card_id = client.save_chapters(
-        card_id, existing_chapters + [chapter], title=card_name
+        card_id, updated_chapters, title=card_name
     )
     remember_card(state, card_name, new_card_id)
 

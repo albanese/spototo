@@ -22,13 +22,13 @@ class Config:
 
     REPLICATE_API_TOKEN = os.environ.get("REPLICATE_API_TOKEN", "")
 
-    # generate: LLM subject + AI-generated pixel art (default).
+    # generate: explicit opt-in to uncapped LLM + AI-generated pixel art.
     # yoto-library: deterministic keyword match against Yoto's own official
     #   icon library -- no AI involved at all. Falls back to no icon if no
     #   good match, never silently falls back to generation.
     # yoto-library-ai: library first; paid fallback needs token + positive cap.
     # none: no icon step at all.
-    ICON_SOURCE = os.environ.get("ICON_SOURCE", "generate")
+    ICON_SOURCE = os.environ.get("ICON_SOURCE", "yoto-library")
     ICON_CACHE_DIR = _path("ICON_CACHE_DIR", "data/icons")
     ICON_AI_MAX_GENERATIONS = int(os.environ.get("ICON_AI_MAX_GENERATIONS", "0"))
 

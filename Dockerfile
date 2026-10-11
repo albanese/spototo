@@ -9,6 +9,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY src/ src/
+COPY spotify_sync/source_matching.py src/source_matching.py
 
 ENV PYTHONUNBUFFERED=1
 

@@ -1,0 +1,10 @@
+# Only production source enters the build context; never credentials/runtime data.
+**
+!Dockerfile
+!requirements.txt
+!src/
+!src/**
+!spotify_sync/
+!spotify_sync/**
+**/__pycache__/
+**/*.pyc
